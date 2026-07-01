@@ -1,4 +1,7 @@
 use eframe::egui;
+use std::time::Instant;
+mod ai_solver;
+use ai_solver::get_all_moves;
 
 struct GearTowerGame {
     rods: [Vec<u8>; 3],
@@ -7,6 +10,12 @@ struct GearTowerGame {
     selected_rod: Option<usize>,
     msg: String,
     win: bool,
+
+    ai_running: bool,
+    ai_step_list: Vec<(usize, usize)>,
+    ai_current_step: usize,
+    ai_last_tick: Instant,
+    ai_delay_ms: u64, 
 }
 
 impl Default for GearTowerGame {
@@ -18,6 +27,12 @@ impl Default for GearTowerGame {
             selected_rod: None,
             msg: "游戏已重置！".to_string(),
             win: false,
+
+            ai_running: false,
+            ai_step_list: Vec::new(),
+            ai_current_step: 0,
+            ai_last_tick: Instant::now(),
+            ai_delay_ms: 600,
         }
     }
 }
@@ -32,6 +47,10 @@ impl GearTowerGame {
         self.selected_rod = None;
         self.msg = "游戏已重置！".to_string();
         self.win = false;
+
+        self.ai_running = false;
+        self.ai_step_list.clear();
+        self.ai_current_step = 0;
     }
 
     fn set_gear_num(&mut self, num: u8) {
@@ -69,6 +88,10 @@ impl GearTowerGame {
     }
 
     fn select_rod(&mut self, idx: usize) {
+        if self.ai_running {
+            self.msg = "AI自动推演中，禁止手动操作！".to_string();
+            return;
+        }
         if self.rods[idx].is_empty() {
             self.msg = format!("{}柱没有齿轮，无法选中", match idx {0=>"A",1=>"B",2=>"C",_=>""});
             return;
@@ -78,12 +101,47 @@ impl GearTowerGame {
     }
 
     fn target_move(&mut self, target_idx: usize) {
+        if self.ai_running {
+            self.msg = "AI自动推演中，禁止手动操作！".to_string();
+            return;
+        }
         let Some(from_idx) = self.selected_rod else {
             self.msg = "请先点击柱子下方【选中此柱】！".to_string();
             return;
         };
         self.move_gear(from_idx, target_idx);
         self.selected_rod = None;
+    }
+
+    fn start_ai_auto(&mut self) {
+        if self.ai_running {
+            return;
+        }
+        self.reset();
+        self.ai_step_list = get_all_moves(self.gear_count);
+        self.ai_current_step = 0;
+        self.ai_running = true;
+        self.ai_last_tick = Instant::now();
+        self.msg = format!("AI开始自动推演，共{}步最优解", self.ai_step_list.len());
+    }
+
+    fn tick_ai(&mut self) {
+        if !self.ai_running {
+            return;
+        }
+        let now = Instant::now();
+        let delta = now.duration_since(self.ai_last_tick).as_millis() as u64;
+        if delta < self.ai_delay_ms {
+            return;
+        }
+        let (from, to) = self.ai_step_list[self.ai_current_step];
+        self.move_gear(from, to);
+        self.ai_last_tick = now;
+        self.ai_current_step += 1;
+        if self.ai_current_step >= self.ai_step_list.len() {
+            self.ai_running = false;
+            self.msg = "AI推演完成！".to_string();
+        }
     }
 }
 
@@ -111,6 +169,9 @@ fn main() -> Result<(), eframe::Error> {
 
 impl eframe::App for GearTowerGame {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.tick_ai();
+        ctx.request_repaint();
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("⚙️ 齿轮堆栈塔");
             ui.horizontal(|ui| {
@@ -123,8 +184,14 @@ impl eframe::App for GearTowerGame {
                 if ui.button("重置游戏").clicked() {
                     self.reset();
                 }
+                if ui.button("AI自动求解").clicked() {
+                    self.start_ai_auto();
+                }
             });
             ui.label(format!("当前总步数：{}", self.step_count));
+            if self.ai_running {
+                ui.label(format!("AI进度：{}/{}", self.ai_current_step, self.ai_step_list.len()));
+            }
             let text_color = if self.win { egui::Color32::GREEN } else { egui::Color32::WHITE };
             ui.label(egui::RichText::new(&self.msg).color(text_color));
             ui.separator();
@@ -190,6 +257,7 @@ impl eframe::App for GearTowerGame {
             ui.label("2. 移动限制：一次只能移动柱子最顶端最小的齿轮");
             ui.label("3. 放置限制：只能把小齿轮放在大齿轮上方，不能大齿轮压小齿轮");
             ui.label("4. 通关目标：将A柱所有齿轮完整移动到C柱");
+            ui.label("5. AI功能：点击【AI自动求解】一键推演最优通关步骤");
 
             if self.win {
                 egui::Window::new("🎉 通关成功！").show(ctx, |ui| {
