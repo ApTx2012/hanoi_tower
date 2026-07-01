@@ -13,7 +13,7 @@ impl Default for GearTowerGame {
     fn default() -> Self {
         Self {
             rods: [vec![], vec![], vec![]],
-            gear_count: 3,
+            gear_count: 4,
             step_count: 0,
             selected_rod: None,
             msg: "游戏已重置！".to_string(),
@@ -25,7 +25,7 @@ impl Default for GearTowerGame {
 impl GearTowerGame {
     fn reset(&mut self) {
         self.rods = [vec![], vec![], vec![]];
-        for size in 1..=self.gear_count {
+        for size in (1..=self.gear_count).rev() {
             self.rods[0].push(size);
         }
         self.step_count = 0;
@@ -44,16 +44,16 @@ impl GearTowerGame {
             self.msg = "不能移动到同一根柱子".to_string();
             return false;
         }
-        let top_from = match self.rods[from].last() {
+        let top_gear = match self.rods[from].last() {
             Some(&s) => s,
             None => {
                 self.msg = "选中柱子没有可移动齿轮！".to_string();
                 return false;
             }
         };
-        if let Some(&top_to) = self.rods[to].last() {
-            if top_from > top_to {
-                self.msg = format!("禁止：大齿轮{}不能放在小齿轮{}上方", top_from, top_to);
+        if let Some(&target_top) = self.rods[to].last() {
+            if top_gear > target_top {
+                self.msg = format!("禁止：大齿轮{}不能放在小齿轮{}上方", top_gear, target_top);
                 return false;
             }
         }
@@ -74,12 +74,12 @@ impl GearTowerGame {
             return;
         }
         self.selected_rod = Some(idx);
-        self.msg = format!("已选中{}柱，请点击其他柱子的【移动到这里】", match idx {0=>"A",1=>"B",2=>"C",_=>""});
+        self.msg = format!("已选中{}柱，仅可移动最上方最小齿轮", match idx {0=>"A",1=>"B",2=>"C",_=>""});
     }
 
     fn target_move(&mut self, target_idx: usize) {
         let Some(from_idx) = self.selected_rod else {
-            self.msg = "请先点击某根柱子的【选中此柱】！".to_string();
+            self.msg = "请先点击柱子下方【选中此柱】！".to_string();
             return;
         };
         self.move_gear(from_idx, target_idx);
@@ -112,7 +112,7 @@ fn main() -> Result<(), eframe::Error> {
 impl eframe::App for GearTowerGame {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("⚙️ 齿轮堆栈塔（汉诺塔）");
+            ui.heading("⚙️ 齿轮堆栈塔");
             ui.horizontal(|ui| {
                 ui.label("齿轮数量：");
                 let mut num = self.gear_count as f32;
@@ -139,22 +139,22 @@ impl eframe::App for GearTowerGame {
                         .inner_margin(egui::vec2(10.0, 10.0))
                         .show(col, |ui| {
                             let gears = &self.rods[rod_idx];
-                            let max_size_usize = self.gear_count as usize;
-                            let gear_count_on_rod = gears.len();
-
-                            let empty_lines = max_size_usize - gear_count_on_rod;
-                            for _ in 0..empty_lines {
+                            let max_total = self.gear_count as usize;
+                            let exist_cnt = gears.len();
+                            let blank_lines = max_total - exist_cnt;
+                            for _ in 0..blank_lines {
                                 ui.add_sized(egui::vec2(420.0, 30.0), egui::Label::new(""));
                             }
-                            for size in gears {
-                                let base_width = 100.0;
-                                let step = 32.0;
-                                let width = base_width + (*size as f32 - 1.0) * step;
 
-                                let color = match size {
-                                    1 => egui::Color32::from_rgb(160, 140, 220),
-                                    2 => egui::Color32::from_rgb(120, 190, 210),
-                                    3 => egui::Color32::from_rgb(140, 190, 120),
+                            for gear_size in gears.iter().rev() {
+                                let base_width = 100.0;
+                                let width_step = 42.0;
+                                let gear_width = base_width + (*gear_size as f32 - 1.0) * width_step;
+
+                                let color = match gear_size {
+                                    1 => egui::Color32::from_rgb(120, 190, 210),
+                                    2 => egui::Color32::from_rgb(140, 190, 120),
+                                    3 => egui::Color32::from_rgb(160, 140, 220),
                                     4 => egui::Color32::from_rgb(240, 180, 80),
                                     5 => egui::Color32::from_rgb(240, 140, 60),
                                     6 => egui::Color32::from_rgb(220, 100, 40),
@@ -164,10 +164,10 @@ impl eframe::App for GearTowerGame {
                                     _ => egui::Color32::from_rgb(100, 20, 0),
                                 };
                                 ui.horizontal(|h| {
-                                    h.add_space((420.0 - width) / 2.0);
+                                    h.add_space((420.0 - gear_width) / 2.0);
                                     h.add_sized(
-                                        egui::vec2(width, 30.0),
-                                        egui::Button::new(format!("齿轮{}", size)).fill(color)
+                                        egui::vec2(gear_width, 30.0),
+                                        egui::Button::new(format!("齿轮{}", gear_size)).fill(color)
                                     );
                                 });
                             }
@@ -185,10 +185,11 @@ impl eframe::App for GearTowerGame {
             });
 
             ui.separator();
-            ui.label("操作说明：");
-            ui.label("1. 先点柱子下方【选中此柱】，蓝色边框代表已选中来源柱");
-            ui.label("2. 只能移动柱子最上方的最小齿轮，再点另一根柱子【移动到这里】");
-            ui.label("3. 大齿轮不能叠放在小齿轮上方，全部移到C柱即可通关");
+            ui.label("游戏规则（与截图一致）：");
+            ui.label("1. 堆叠样式：柱子底部是大齿轮，越往上齿轮尺寸越小");
+            ui.label("2. 移动限制：一次只能移动柱子最顶端最小的齿轮");
+            ui.label("3. 放置限制：只能把小齿轮放在大齿轮上方，不能大齿轮压小齿轮");
+            ui.label("4. 通关目标：将A柱所有齿轮完整移动到C柱");
 
             if self.win {
                 egui::Window::new("🎉 通关成功！").show(ctx, |ui| {
